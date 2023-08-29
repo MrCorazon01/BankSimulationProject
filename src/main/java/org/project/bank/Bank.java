@@ -12,7 +12,7 @@ import umontreal.ssj.stat.*;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-
+import javax.swing.*;
 
 public class Bank {
     //Paramètres globaux
@@ -61,6 +61,8 @@ public class Bank {
     double[] totalWaitTimesA; // Sommes des temps d'attente total de clients de type A par jour
     double[] totalWaitTimesB; // Sommes des temps d'attente total de clients de type B par jour
     int currentDay = 0; // Variable pour suivre le jour en cours
+    static List<Double> dailyWaitTimesA = new ArrayList<>();
+    static List<Double> dailyWaitTimesB = new ArrayList<>();
 
 
     public class Customer{
@@ -182,7 +184,7 @@ public class Bank {
         }
     }
 
-    private void generateAppointmentsForTypeB(){
+    private void generateAppointmentsForTypeB(double simulationStartTime){
         // génération des rendez-vous pour les clients de type B
         for (Advisor advisor : Advisors) {
             for (int j = 0; j < 12; j++) {
@@ -270,33 +272,43 @@ public class Bank {
     }
 
 
+
     // Méthode principale pour lancer la simulation
-    public void simulate(double simulationDays) {
+    public void simulate(int numSimulationDays) {
         Sim.init();
 
-        double simulationEndTime = CLOSING_TIME + simulationDays * HOUR * 24; // Calculer la fin de la simulation
+        for (currentDay = 0; currentDay < numSimulationDays; currentDay++) {
 
-        // Planifier un événement de fin de simulation à la nouvelle heure de fin
-        new EndOfSim().schedule(simulationEndTime);
 
-        // Planifier le premier événement d'arrivée des clients de type A après l'heure d'ouverture
-        double firstArrivalTime = OPENING_TIME + genArrivalA[0].nextDouble();
-        while (firstArrivalTime > CLOSING_TIME) {
-            firstArrivalTime = OPENING_TIME + genArrivalA[0].nextDouble();
+            double simulationStartTime = OPENING_TIME + currentDay * HOUR * 24; // Début de la simulation pour ce jour
+            double simulationEndTime = simulationStartTime + HOUR * 24; // Fin de la simulation pour ce jour
+
+            // Planifier un événement de fin de simulation à la nouvelle heure de fin
+            new EndOfDaySim().schedule(simulationEndTime);
+
+            // Planifier le premier événement d'arrivée des clients de type A après l'heure d'ouverture
+            double firstArrivalTime = simulationStartTime + genArrivalA[0].nextDouble();
+            new Arrival().schedule(firstArrivalTime);
+
+            // Générer les rendez-vous pour les clients de type B pour ce jour
+            generateAppointmentsForTypeB(simulationStartTime);
+
+            // Planifier les départs initiaux des clients de type B
+            for (Customer custB : waitListB) {
+                double actualAppointmentTime = custB.appointment.appointmentTime;
+                new DepartureTypeB().schedule(actualAppointmentTime + custB.servTime);
+            }
+
+            // Exécuter la simulation pour ce jour
+            Sim.start();
+
+            // Calculer et afficher les résultats pour ce jour
+            collectResults();
         }
-        new Arrival().schedule(firstArrivalTime);
-
-
-        generateAppointmentsForTypeB();
-
-        // Planifier le premier événement de départ des clients de type B après l'ouverture de la banque
-        for (Customer custB : waitListB) {
-            double actualAppointmentTime = custB.appointment.appointmentTime;
-            new DepartureTypeB().schedule(actualAppointmentTime + custB.servTime);
-        }
-
-        Sim.start();
     }
+
+
+
 
     class Arrival extends Event{
         public void actions(){
@@ -409,7 +421,7 @@ public class Bank {
 
 
 
-    class EndOfSim extends Event {
+    class EndOfDaySim extends Event {
         public void actions() {
             if (Sim.time() >= CLOSING_TIME) {
 
@@ -420,15 +432,41 @@ public class Bank {
 
 
     // Méthode pour afficher les résultats de la simulation
-    public void displayResults() {
-        double avgWaitTimeA = totWaitTimeA / numClientsA;
-        double avgWaitTimeB = totWaitTimeB / numClientsB;
+    private void collectResults() {
+        double avgWaitTimeA = totalWaitTimesA[currentDay] / numClientsA;
+        double avgWaitTimeB = totalWaitTimesB[currentDay] / numClientsB;
 
-        System.out.println("Temps d'attente moyen des clients de type A : " + avgWaitTimeA);
-        System.out.println("Temps d'attente moyen des clients de type B : " + avgWaitTimeB);
+        dailyWaitTimesA.add(avgWaitTimeA);
+        dailyWaitTimesB.add(avgWaitTimeB);
+
 
     }
 
+    public void displayResult(){
+        // Calcul des moyennes à long terme pour les types A et B
+        double sumWaitTimesA = 0.0;
+        double sumWaitTimesB = 0.0;
+
+        for (double waitTimeA : dailyWaitTimesA) {
+            sumWaitTimesA += waitTimeA;
+        }
+
+        for (double waitTimeB : dailyWaitTimesB) {
+            sumWaitTimesB += waitTimeB;
+        }
+
+        double wa = sumWaitTimesA / nbDay; // Temps d'attente moyen à long terme pour les clients de type A
+        double wb = sumWaitTimesB / nbDay; // Temps d'attente moyen à long terme pour les clients de type B
+
+        System.out.println("La somme des temps d'attentes:");
+        System.out.println("Wn,a (Clients de type A): " + sumWaitTimesA);
+        System.out.println("Wn,b (Clients de type B): " + sumWaitTimesB);
+        System.out.println("Estimation des temps d'attente moyens à long terme:");
+        System.out.println("wa (Clients de type A): " + wa);
+        System.out.println("wb (Clients de type B): " + wb);
+
+
+    }
 
 
     public static void main(String[] args) {
@@ -445,16 +483,24 @@ public class Bank {
         double r_rate = 0.8;
         double p_absent = 0.05;
         double s = 10.0 * 60.0;
-        int nbDay = 2;
+        int nbDay = 3;
 
         Bank bank = new Bank(numCashiers, numAdvisors, arrivalRates, tA_mean, tA_std, r_mean, r_std,
                 tB_mean, tB_std, r_rate, p_absent, s, nbDay);
 
-        bank.simulate(nbDay); //Nombre de jours
+        bank.simulate(nbDay);
 
+        bank.displayResult();
 
+        SwingUtilities.invokeLater(() -> {
+            Histogram custA = new Histogram("Histogramme pour le client de type A", dailyWaitTimesA, "Jour", "Temps d'attente");
+            custA.pack();
+            custA.setVisible(true);
 
-        bank.displayResults();
+            Histogram custB = new Histogram("Histogramme pour le client de type B", dailyWaitTimesB, "Jour", "Temps d'attente");
+            custB.pack();
+            custB.setVisible(true);
+        });
 
     }
 
