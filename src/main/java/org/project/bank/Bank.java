@@ -9,11 +9,24 @@ import umontreal.ssj.rng.*;
 import umontreal.ssj.randvar.*;
 import umontreal.ssj.stat.*;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import javax.swing.*;
+import java.util.Arrays;
+import java.util.Scanner;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.stream.Collectors;
 
+
+/**
+ * Cette classe représente un simulateur de banque.
+ * Elle permet de simuler le fonctionnement d'une banque avec différents paramètres.
+ */
 public class Bank {
     //Paramètres globaux
     static double HOUR = 3600.0;
@@ -30,7 +43,7 @@ public class Bank {
     double tB_mean, tB_std; // Moyenne et écart-type de la durée de service pour les clients de type B.
     double r_mean, r_std; //  Moyenne et écart-type des retards pour les clients de type B.
     double s; // Seuille pour qu'un conseiller puisse servire un client de type A
-    int nbDay;
+    static int nbDay; //Nombre de jours de la simulation
 
     //Variables génératives
     ExponentialGen[] genArrivalA;
@@ -38,11 +51,11 @@ public class Bank {
     RandomVariateGen genServiceB;
     RandomVariateGen genDelayB;
 
-    // Listes
-
+    // Listes pour les clients de type A et B
     LinkedList<Customer> waitListA = new LinkedList<> ();
     LinkedList<Customer> waitListB = new LinkedList<> ();
 
+    // Listes pour les caissiers et les conseillers
     LinkedList<Customer> servList = new LinkedList<> ();
     List <Advisor> Advisors = new ArrayList<>();
     List <Cashier> Cashiers = new ArrayList<>();
@@ -61,10 +74,14 @@ public class Bank {
     double[] totalWaitTimesA; // Sommes des temps d'attente total de clients de type A par jour
     double[] totalWaitTimesB; // Sommes des temps d'attente total de clients de type B par jour
     int currentDay = 0; // Variable pour suivre le jour en cours
-    static List<Double> dailyWaitTimesA = new ArrayList<>();
-    static List<Double> dailyWaitTimesB = new ArrayList<>();
+    static List<Double> dailyWaitTimesA = new ArrayList<>(); // Liste des temps d'attente moyens par jour pour les clients de type A
+    static List<Double> dailyWaitTimesB = new ArrayList<>(); // Liste des temps d'attente moyens par jour pour les clients de type B
 
 
+    /**
+     * Cette classe interne représente un client de la banque.
+     * Elle stocke des informations sur le client, telles que son type, son temps d'arrivée, etc.
+     */
     public class Customer{
         double arrivTime;
         double servTime;
@@ -88,10 +105,20 @@ public class Bank {
         }
     }
 
+
+    /**
+     * Cette classe interne représente un caissier de la banque.
+     * Elle peut être utilisée pour compter le nombre de caissiers par période.
+     */
     public static class Cashier {
         // Class pour pouvoir avoir le nombre de cashiers
     }
 
+
+    /**
+     * Cette classe interne représente un conseiller de la banque.
+     * Elle gère la disponibilité des conseillers et leurs rendez-vous.
+     */
     // Dans la classe Advisor
     public class Advisor {
         double busyUntil = 0.0; // Heure à laquelle le conseiller sera libre
@@ -103,7 +130,7 @@ public class Bank {
         }
 
 
-
+        // Méthode pour servir un client de type A ou B
         public void serve(Customer customer) {
             if (canServe(Sim.time())) {
                 if (customer.type == 0) { // Client de type A
@@ -123,11 +150,13 @@ public class Bank {
                 }
             }
         }
+        // Méthode pour terminer un rendez-vous
         public void finishAppointment() {
             hasAppointment = false;
             busyUntil = Sim.time(); // Le conseiller est libre dès qu'il a fini de servir
         }
 
+        // Méthode pour vérifier si le conseiller peut servir un client de type A
         public boolean canServeTypeA(double currentTime) {
             // Vérifier si le conseiller peut servir un client de type A
             if (canServe(currentTime)) {
@@ -144,9 +173,13 @@ public class Bank {
     }
 
 
+    /**
+     * Cette classe interne représente un rendez-vous entre un conseiller et un client de type B.
+     */
     public class Appointment {
         Advisor advisor;
         double appointmentTime;
+
 
         public Appointment(Advisor advisor, double appointmentTime) {
             this.advisor = advisor;
@@ -184,6 +217,7 @@ public class Bank {
         }
     }
 
+    // Méthode pour générer les rendez-vous pour les clients de type B
     private void generateAppointmentsForTypeB(double simulationStartTime){
         // génération des rendez-vous pour les clients de type B
         for (Advisor advisor : Advisors) {
@@ -221,24 +255,81 @@ public class Bank {
     double[] PERIOD_START_TIMES = {10.0 * HOUR, 12.0 * HOUR, 14.0 * HOUR};
 
 
-    public Bank(int[] numCashiers, int[] numAdvisors, double[] arrivalRates,
-                double tA_mean, double tA_std, double r_mean, double r_std,
-                double tB_mean, double tB_std, double r_rate, double p_absent,
-                double s, int nbDay){
+    public Bank(){
 
-        NUM_CASHIERS = numCashiers;
-        NUM_ADVISORS = numAdvisors;
-        ARRIVAL_RATES = arrivalRates;
-        this.tA_mean = tA_mean;
-        this.tA_std = tA_std;
-        this.r_mean = r_mean;
-        this.r_std = r_std;
-        this.tB_mean = tB_mean;
-        this.tB_std = tB_std;
-        this.r_rate = r_rate;
-        this.p_absent = p_absent;
-        this.s = s;
-        this.nbDay = nbDay;
+        try{
+            BufferedReader br = new BufferedReader(new FileReader("parameters.txt"));
+            String line;
+
+            while ((line = br.readLine()) != null) {
+                // Traitez chaque ligne ici, par exemple, en divisant la ligne en clé et en valeur
+                String[] parts = line.split("=");
+                if (parts.length == 2) {
+                    String key = parts[0].trim();
+                    String value = parts[1].trim();
+
+                    switch (key) {
+                        case "numCashiers":
+                            // Parser la valeur en un tableau d'entiers
+                            String[] cashiers = value.split(",");
+                            NUM_CASHIERS = Arrays.stream(cashiers)
+                                    .mapToInt(Integer::parseInt)
+                                    .toArray();
+                            break;
+                        case "numAdvisors":
+                            // Parser la valeur en un tableau d'entiers
+                            String[] advisors = value.split(",");
+                            NUM_ADVISORS = Arrays.stream(advisors)
+                                    .mapToInt(Integer::parseInt)
+                                    .toArray();
+                            break;
+                        case "arrivalRates":
+                            // Parser la valeur en un tableau de doubles
+                            String[] rates = value.split(",");
+                            ARRIVAL_RATES = Arrays.stream(rates)
+                                    .mapToDouble(Double::parseDouble)
+                                    .toArray();
+                            break;
+                        case "tA_mean":
+                            tA_mean = Double.parseDouble(value);
+                            break;
+                        case "tA_std":
+                            tA_std = Double.parseDouble(value);
+                            break;
+                        case "r_mean":
+                            r_mean = Double.parseDouble(value);
+                            break;
+                        case "r_std":
+                            r_std = Double.parseDouble(value);
+                            break;
+                        case "tB_mean":
+                            tB_mean = Double.parseDouble(value);
+                            break;
+                        case "tB_std":
+                            tB_std = Double.parseDouble(value);
+                            break;
+                        case "r_rate":
+                            r_rate = Double.parseDouble(value);
+                            break;
+                        case "p_absent":
+                            p_absent = Double.parseDouble(value);
+                            break;
+                        case "s":
+                            s = Double.parseDouble(value);
+                            break;
+                        case "nbDay":
+                            nbDay = Integer.parseInt(value);
+                            break;
+                        default:
+                            System.err.println("Paramètre non reconnu : " + key);
+                    }
+                }
+            }
+            br.close();
+        }catch (IOException e) {
+                e.printStackTrace();
+            }
+
 
         // Créer les conseillers et les caissiers
         createAdvisors();
@@ -309,7 +400,10 @@ public class Bank {
 
 
 
-
+    /**
+     * Cette classe interne représente un événement d'arrivée des clients de type A.
+     * Elle planifie les arrivées des clients de type A.
+     */
     class Arrival extends Event{
         public void actions(){
             // Générer l'arrivée du prochain client de type A
@@ -336,6 +430,11 @@ public class Bank {
 
     }
 
+
+    /**
+     * Cette classe interne représente un événement de départ des clients de type A.
+     * Elle gère les départs des clients de type A du service.
+     */
     class DepartureTypeA extends Event {
         public void actions() {
             servList.removeFirst(); // Retirer le client qui part du service
@@ -373,6 +472,11 @@ public class Bank {
         }
     }
 
+
+    /**
+     * Cette classe interne représente un événement de départ des clients de type B.
+     * Elle gère les départs des clients de type B du service.
+     */
     class DepartureTypeB extends Event {
         public void actions() {
             if (!waitListB.isEmpty()) {
@@ -418,9 +522,10 @@ public class Bank {
     }
 
 
-
-
-
+    /**
+     * Cette classe interne représente un événement de fin de journée de simulation.
+     * Elle arrête la simulation lorsque l'heure de fermeture est atteinte.
+     */
     class EndOfDaySim extends Event {
         public void actions() {
             if (Sim.time() >= CLOSING_TIME) {
@@ -465,29 +570,12 @@ public class Bank {
         System.out.println("wa (Clients de type A): " + wa);
         System.out.println("wb (Clients de type B): " + wb);
 
-
     }
 
 
     public static void main(String[] args) {
-        // Définir les valeurs spécifiées
-        int[] numCashiers = { 3, 4, 3 };
-        int[] numAdvisors = { 2, 3, 3 };
-        double[] arrivalRates = { 20.0 / HOUR, 35.0 / HOUR, 28.0 / HOUR };
-        double tA_mean = 200.0;
-        double tA_std = 60.0;
-        double r_mean = 100.0;
-        double r_std = 90.0;
-        double tB_mean = 20.0 * 60.0;
-        double tB_std = 8.0 * 60.0;
-        double r_rate = 0.8;
-        double p_absent = 0.05;
-        double s = 10.0 * 60.0;
-        int nbDay = 3;
 
-        Bank bank = new Bank(numCashiers, numAdvisors, arrivalRates, tA_mean, tA_std, r_mean, r_std,
-                tB_mean, tB_std, r_rate, p_absent, s, nbDay);
-
+        Bank bank = new Bank();
         bank.simulate(nbDay);
 
         bank.displayResult();
@@ -501,6 +589,10 @@ public class Bank {
             custB.pack();
             custB.setVisible(true);
         });
+
+
+
+
 
     }
 

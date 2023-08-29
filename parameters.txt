@@ -1,0 +1,13 @@
+numCashiers=3,4,3
+numAdvisors=2,3,3
+arrivalRates=0.3333333333333333,0.5833333333333334,0.4666666666666667
+tA_mean=200.0
+tA_std=60.0
+r_mean=100.0
+r_std=90.0
+tB_mean=1200
+tB_std=480
+r_rate=0.8
+p_absent=0.05
+s=600
+nbDay=5
